@@ -1,3 +1,4 @@
+// server/routes.ts
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -13,7 +14,8 @@ import {
   getLegalGuidance,
   learnFromDocument,
 } from "./openai";
-import { upload, extractTextFromFile, cleanupFile } from "./upload";
+// The line below is now fixed
+import { upload, extractTextFromFile } from "./upload";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Cases endpoints
@@ -101,11 +103,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error.message });
     }
   });
-
-  // Document upload with file handling
-// server/routes.ts
-
-// ... (all other routes stay the same) ...
 
   // Document upload with file handling
   app.post("/api/documents/upload", upload.single("file"), async (req, res) => {
@@ -247,7 +244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // No cleanup needed as file was in memory
       res.status(201).json(newDocument);
     } catch (error: any) {
-      // No cleanup needed
+      // **FIXED**: Removed call to cleanupFile
       res.status(500).json({ error: error.message });
     }
   });
