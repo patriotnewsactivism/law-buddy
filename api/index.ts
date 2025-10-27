@@ -1,487 +1,549 @@
-// api/index.ts
+// api/index.ts - Vercel Serverless Function with Robust Error Handling
 import express from 'express';
-import { createServer } from 'http';
-import { storage } from '../server/storage';
-import {
-  insertCaseSchema,
-  insertDocumentSchema,
-  insertDeadlineSchema,
-} from '../shared/schema';
-import {
-  analyzeLegalDocument,
-  checkRule12b6Compliance,
-  getLegalGuidance,
-  learnFromDocument,
-} from '../server/openai';
-import { upload, extractTextFromFile } from '../server/upload';
 
-// Create express app
-const app = express();
+// Global app instance - reused across invocations
+let app: express.Express | null = null;
+let initializationError: Error | null = null;
 
-// Middleware
-app.use(express.json({
-  verify: (req: any, _res: any, buf: any) => {
-    req.rawBody = buf;
+/**
+ * Initialize the Express app with all routes and middleware.
+ * This runs once and is cached across serverless invocations.
+ */
+async function initializeApp(): Promise<express.Express> {
+  if (app) {
+    return app;
   }
-}));
 
-app.use(express.urlencoded({ extended: false }));
-
-// Logging middleware
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: any = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-      console.log(logLine);
-    }
-  });
-
-  next();
-});
-
-// ============================================================================
-// ROUTES - Inlined to avoid module resolution issues in Vercel
-// ============================================================================
-
-// Cases endpoints
-app.get("/api/cases", async (req, res) => {
-  try {
-    const cases = await storage.getCases();
-    res.json(cases);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  if (initializationError) {
+    throw initializationError;
   }
-});
 
-app.get("/api/cases/:id", async (req, res) => {
-  try {
-    const caseItem = await storage.getCase(req.params.id);
-    if (!caseItem) {
-      return res.status(404).json({ error: "Case not found" });
-    }
-    res.json(caseItem);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/cases", async (req, res) => {
-  try {
-    const data = insertCaseSchema.parse(req.body);
-    const newCase = await storage.createCase(data);
-    res.status(201).json(newCase);
-  } catch (error: any) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-app.patch("/api/cases/:id", async (req, res) => {
-  try {
-    const updated = await storage.updateCase(req.params.id, req.body);
-    if (!updated) {
-      return res.status(404).json({ error: "Case not found" });
-    }
-    res.json(updated);
-  } catch (error: any) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-// Case-specific documents
-app.get("/api/cases/:id/documents", async (req, res) => {
-  try {
-    const documents = await storage.getCaseDocuments(req.params.id);
-    res.json(documents);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Case-specific deadlines
-app.get("/api/cases/:id/deadlines", async (req, res) => {
-  try {
-    const deadlines = await storage.getCaseDeadlines(req.params.id);
-    res.json(deadlines);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Documents endpoints
-app.get("/api/documents", async (req, res) => {
-  try {
-    const documents = await storage.getDocuments();
-    res.json(documents);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/documents/:id", async (req, res) => {
-  try {
-    const document = await storage.getDocument(req.params.id);
-    if (!document) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-    res.json(document);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Document upload with file handling - FIXED VERSION
-app.post("/api/documents/upload", upload.single("file"), async (req, res) => {
-  console.log("\n=== Document Upload Request ===");
-  console.log("Body:", JSON.stringify(req.body, null, 2));
-  console.log("File:", req.file ? {
-    originalname: req.file.originalname,
-    mimetype: req.file.mimetype,
-    size: req.file.size
-  } : "No file uploaded");
+  console.log('[Init] Starting serverless function initialization...');
   
   try {
-    const { caseId, title, documentType, content } = req.body;
+    // Create express app
+    const newApp = express();
 
-    // Validate required fields
-    if (!caseId || !title || !documentType) {
-      console.log("✗ Missing required fields");
-      return res.status(400).json({ 
-        error: "Missing required fields",
-        details: {
-          caseId: !caseId ? "required" : "present",
-          title: !title ? "required" : "present",
-          documentType: !documentType ? "required" : "present"
+    // Middleware
+    newApp.use(express.json({
+      verify: (req: any, _res: any, buf: any) => {
+        req.rawBody = buf;
+      }
+    }));
+
+    newApp.use(express.urlencoded({ extended: false }));
+
+    // Logging middleware
+    newApp.use((req, res, next) => {
+      const start = Date.now();
+      const path = req.path;
+      let capturedJsonResponse: any = undefined;
+
+      const originalResJson = res.json;
+      res.json = function (bodyJson, ...args) {
+        capturedJsonResponse = bodyJson;
+        return originalResJson.apply(res, [bodyJson, ...args]);
+      };
+
+      res.on("finish", () => {
+        const duration = Date.now() - start;
+        if (path.startsWith("/api")) {
+          let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+          if (capturedJsonResponse) {
+            logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+          }
+          if (logLine.length > 80) {
+            logLine = logLine.slice(0, 79) + "…";
+          }
+          console.log(logLine);
         }
       });
+
+      next();
+    });
+
+    // Verify environment variables
+    console.log('[Init] Checking environment variables...');
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL environment variable is not set');
     }
+    console.log('[Init] ✓ DATABASE_URL is set');
 
-    console.log(`Processing document: ${title} (${documentType}) for case ${caseId}`);
+    // Lazy load heavy dependencies only after env vars are verified
+    console.log('[Init] Loading dependencies...');
+    const { storage } = await import('../server/storage');
+    const {
+      insertCaseSchema,
+      insertDocumentSchema,
+      insertDeadlineSchema,
+    } = await import('../shared/schema');
+    const {
+      analyzeLegalDocument,
+      checkRule12b6Compliance,
+      getLegalGuidance,
+      learnFromDocument,
+    } = await import('../server/openai');
+    const { upload, extractTextFromFile } = await import('../server/upload');
+    
+    console.log('[Init] ✓ Dependencies loaded');
 
-    // Verify case exists
-    console.log("Verifying case exists...");
-    const caseItem = await storage.getCase(caseId);
-    if (!caseItem) {
-      console.log(`✗ Case not found: ${caseId}`);
-      return res.status(404).json({ error: "Case not found" });
-    }
-    console.log(`✓ Case found: ${caseItem.title} (${caseItem.jurisdiction})`);
+    // ============================================================================
+    // ROUTES
+    // ============================================================================
 
-    let extractedText = "";
+    // Health check endpoint
+    newApp.get("/api/health", (req, res) => {
+      res.json({ 
+        status: "ok", 
+        timestamp: new Date().toISOString(),
+        environment: process.env.VERCEL ? "vercel" : "local"
+      });
+    });
 
-    // Handle manual text input (no file)
-    if (!req.file && content) {
-      console.log("Using manually entered content");
-      extractedText = content;
-    }
-    // Handle file upload
-    else if (req.file) {
-      console.log("Extracting text from uploaded file...");
+    // Cases endpoints
+    newApp.get("/api/cases", async (req, res) => {
       try {
-        extractedText = await extractTextFromFile(
-          req.file.buffer, 
-          req.file.mimetype,
-          req.file.originalname
-        );
-        console.log(`✓ Text extracted successfully (${extractedText.length} characters)`);
-      } catch (extractError: any) {
-        console.error("✗ Text extraction failed:", extractError.message);
-        return res.status(400).json({ 
-          error: "Failed to extract text from file",
-          details: extractError.message 
+        console.log('[API] GET /api/cases');
+        const cases = await storage.getCases();
+        res.json(cases);
+      } catch (error: any) {
+        console.error('[API] Error fetching cases:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    newApp.get("/api/cases/:id", async (req, res) => {
+      try {
+        console.log(`[API] GET /api/cases/${req.params.id}`);
+        const caseItem = await storage.getCase(req.params.id);
+        if (!caseItem) {
+          return res.status(404).json({ error: "Case not found" });
+        }
+        res.json(caseItem);
+      } catch (error: any) {
+        console.error(`[API] Error fetching case ${req.params.id}:`, error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    newApp.post("/api/cases", async (req, res) => {
+      try {
+        console.log('[API] POST /api/cases', JSON.stringify(req.body, null, 2));
+        const data = insertCaseSchema.parse(req.body);
+        const newCase = await storage.createCase(data);
+        console.log(`[API] ✓ Case created: ${newCase.id}`);
+        res.status(201).json(newCase);
+      } catch (error: any) {
+        console.error('[API] Error creating case:', error);
+        res.status(400).json({ 
+          error: error.message,
+          details: error.errors || undefined 
         });
       }
-    }
-    // No file and no content
-    else {
-      console.log("✗ No file uploaded and no content provided");
-      return res.status(400).json({ 
-        error: "No file uploaded and no content provided" 
-      });
-    }
+    });
 
-    // Validate we have text
-    if (!extractedText || extractedText.trim().length === 0) {
-      console.log("✗ No text content extracted");
-      return res.status(400).json({ 
-        error: "Could not extract text from file or no content provided" 
-      });
-    }
+    newApp.patch("/api/cases/:id", async (req, res) => {
+      try {
+        console.log(`[API] PATCH /api/cases/${req.params.id}`);
+        const updated = await storage.updateCase(req.params.id, req.body);
+        if (!updated) {
+          return res.status(404).json({ error: "Case not found" });
+        }
+        res.json(updated);
+      } catch (error: any) {
+        console.error(`[API] Error updating case ${req.params.id}:`, error);
+        res.status(400).json({ error: error.message });
+      }
+    });
 
-    console.log(`✓ Document has ${extractedText.length} characters of text`);
+    // Case-specific documents
+    newApp.get("/api/cases/:id/documents", async (req, res) => {
+      try {
+        const documents = await storage.getCaseDocuments(req.params.id);
+        res.json(documents);
+      } catch (error: any) {
+        console.error(`[API] Error fetching case documents:`, error);
+        res.status(500).json({ error: error.message });
+      }
+    });
 
-    // AI Analysis
-    let aiAnalysis = null;
-    let complianceCheck = null;
+    // Case-specific deadlines
+    newApp.get("/api/cases/:id/deadlines", async (req, res) => {
+      try {
+        const deadlines = await storage.getCaseDeadlines(req.params.id);
+        res.json(deadlines);
+      } catch (error: any) {
+        console.error(`[API] Error fetching case deadlines:`, error);
+        res.status(500).json({ error: error.message });
+      }
+    });
 
-    console.log("Starting AI analysis...");
-    try {
-      console.log("  - Analyzing document structure and content...");
-      aiAnalysis = await analyzeLegalDocument(
-        extractedText,
-        documentType,
-        caseItem.jurisdiction
-      );
-      console.log("  ✓ Document analysis complete");
+    // Documents endpoints
+    newApp.get("/api/documents", async (req, res) => {
+      try {
+        const documents = await storage.getDocuments();
+        res.json(documents);
+      } catch (error: any) {
+        console.error('[API] Error fetching documents:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
 
-      // Check compliance for complaints
-      if (documentType.toLowerCase().includes("complaint")) {
-        console.log("  - Checking Rule 12(b)(6) compliance...");
-        complianceCheck = await checkRule12b6Compliance(
-          extractedText,
-          caseItem.jurisdiction
-        );
-        console.log(`  ✓ Compliance check complete (score: ${complianceCheck.score || "N/A"})`);
+    newApp.get("/api/documents/:id", async (req, res) => {
+      try {
+        const document = await storage.getDocument(req.params.id);
+        if (!document) {
+          return res.status(404).json({ error: "Document not found" });
+        }
+        res.json(document);
+      } catch (error: any) {
+        console.error(`[API] Error fetching document:`, error);
+        res.status(500).json({ error: error.message });
+      }
+    });
 
-        // Learn from this document
-        console.log("  - Extracting learning patterns...");
-        const learningPatterns = await learnFromDocument(
+    // Document upload with file handling
+    newApp.post("/api/documents/upload", upload.single("file"), async (req, res) => {
+      console.log("\n=== Document Upload Request ===");
+      console.log("Body:", JSON.stringify(req.body, null, 2));
+      console.log("File:", req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      } : "No file uploaded");
+      
+      try {
+        const { caseId, title, documentType, content } = req.body;
+
+        if (!caseId || !title || !documentType) {
+          console.log("✗ Missing required fields");
+          return res.status(400).json({ 
+            error: "Missing required fields",
+            details: {
+              caseId: !caseId ? "required" : "present",
+              title: !title ? "required" : "present",
+              documentType: !documentType ? "required" : "present"
+            }
+          });
+        }
+
+        const caseItem = await storage.getCase(caseId);
+        if (!caseItem) {
+          console.log(`✗ Case not found: ${caseId}`);
+          return res.status(404).json({ error: "Case not found" });
+        }
+
+        let extractedText = "";
+
+        if (!req.file && content) {
+          extractedText = content;
+        } else if (req.file) {
+          try {
+            extractedText = await extractTextFromFile(
+              req.file.buffer, 
+              req.file.mimetype,
+              req.file.originalname
+            );
+          } catch (extractError: any) {
+            console.error("✗ Text extraction failed:", extractError.message);
+            return res.status(400).json({ 
+              error: "Failed to extract text from file",
+              details: extractError.message 
+            });
+          }
+        } else {
+          return res.status(400).json({ 
+            error: "No file uploaded and no content provided" 
+          });
+        }
+
+        if (!extractedText || extractedText.trim().length === 0) {
+          return res.status(400).json({ 
+            error: "Could not extract text from file or no content provided" 
+          });
+        }
+
+        let aiAnalysis = null;
+        let complianceCheck = null;
+
+        try {
+          aiAnalysis = await analyzeLegalDocument(
+            extractedText,
+            documentType,
+            caseItem.jurisdiction
+          );
+
+          if (documentType.toLowerCase().includes("complaint")) {
+            complianceCheck = await checkRule12b6Compliance(
+              extractedText,
+              caseItem.jurisdiction
+            );
+
+            const learningPatterns = await learnFromDocument(
+              documentType,
+              caseItem.jurisdiction,
+              extractedText,
+              complianceCheck
+            );
+
+            if (learningPatterns) {
+              await storage.createLearningData({
+                category: "document_quality",
+                jurisdiction: caseItem.jurisdiction,
+                documentType: documentType,
+                patterns: learningPatterns,
+                successMetrics: complianceCheck,
+              });
+            }
+          }
+        } catch (aiError: any) {
+          console.error("⚠ AI analysis error:", aiError.message);
+        }
+
+        const newDocument = await storage.createDocument({
+          caseId,
+          title,
           documentType,
-          caseItem.jurisdiction,
-          extractedText,
-          complianceCheck
-        );
+          content: extractedText,
+          fileName: req.file?.originalname || null,
+          fileSize: req.file?.size || null,
+          aiAnalysis,
+          complianceCheck,
+        });
 
-        if (learningPatterns) {
-          await storage.createLearningData({
-            category: "document_quality",
-            jurisdiction: caseItem.jurisdiction,
-            documentType: documentType,
-            patterns: learningPatterns,
-            successMetrics: complianceCheck,
-          });
-          console.log("  ✓ Learning patterns saved");
+        console.log(`✓ Document saved: ${newDocument.id}`);
+        res.status(201).json(newDocument);
+      } catch (error: any) {
+        console.error("✗ Upload failed:", error);
+        res.status(500).json({ 
+          error: "Upload failed",
+          details: error.message
+        });
+      }
+    });
+
+    // Fallback for text-only document creation
+    newApp.post("/api/documents", async (req, res) => {
+      try {
+        const data = insertDocumentSchema.parse(req.body);
+        const caseItem = await storage.getCase(data.caseId);
+        
+        if (!caseItem) {
+          return res.status(404).json({ error: "Case not found" });
         }
-      }
-    } catch (aiError: any) {
-      console.error("⚠ AI analysis error (continuing without analysis):", aiError.message);
-      // Continue without AI analysis if it fails
-    }
 
-    // Save to database
-    console.log("Saving document to database...");
-    const newDocument = await storage.createDocument({
-      caseId,
-      title,
-      documentType,
-      content: extractedText,
-      fileName: req.file?.originalname || null,
-      fileSize: req.file?.size || null,
-      aiAnalysis,
-      complianceCheck,
-    });
+        let aiAnalysis = null;
+        let complianceCheck = null;
 
-    console.log(`✓ Document saved successfully (ID: ${newDocument.id})`);
-    console.log("=== Upload Complete ===\n");
+        try {
+          aiAnalysis = await analyzeLegalDocument(
+            data.content,
+            data.documentType,
+            caseItem.jurisdiction
+          );
 
-    res.status(201).json(newDocument);
-  } catch (error: any) {
-    console.error("✗ Upload failed:", error.message);
-    console.error("Stack trace:", error.stack);
-    res.status(500).json({ 
-      error: "Upload failed",
-      details: error.message,
-      stack: process.env.NODE_ENV === "development" ? error.stack : undefined
-    });
-  }
-});
+          if (data.documentType.toLowerCase().includes("complaint")) {
+            complianceCheck = await checkRule12b6Compliance(
+              data.content,
+              caseItem.jurisdiction
+            );
 
-// Fallback for text-only document creation
-app.post("/api/documents", async (req, res) => {
-  try {
-    const data = insertDocumentSchema.parse(req.body);
-    
-    const caseItem = await storage.getCase(data.caseId);
-    if (!caseItem) {
-      return res.status(404).json({ error: "Case not found" });
-    }
+            const learningPatterns = await learnFromDocument(
+              data.documentType,
+              caseItem.jurisdiction,
+              data.content,
+              complianceCheck
+            );
 
-    let aiAnalysis = null;
-    let complianceCheck = null;
-
-    try {
-      aiAnalysis = await analyzeLegalDocument(
-        data.content,
-        data.documentType,
-        caseItem.jurisdiction
-      );
-
-      if (data.documentType.toLowerCase().includes("complaint")) {
-        complianceCheck = await checkRule12b6Compliance(
-          data.content,
-          caseItem.jurisdiction
-        );
-
-        const learningPatterns = await learnFromDocument(
-          data.documentType,
-          caseItem.jurisdiction,
-          data.content,
-          complianceCheck
-        );
-
-        if (learningPatterns) {
-          await storage.createLearningData({
-            category: "document_quality",
-            jurisdiction: caseItem.jurisdiction,
-            documentType: data.documentType,
-            patterns: learningPatterns,
-            successMetrics: complianceCheck,
-          });
+            if (learningPatterns) {
+              await storage.createLearningData({
+                category: "document_quality",
+                jurisdiction: caseItem.jurisdiction,
+                documentType: data.documentType,
+                patterns: learningPatterns,
+                successMetrics: complianceCheck,
+              });
+            }
+          }
+        } catch (aiError) {
+          console.error("AI analysis error:", aiError);
         }
+
+        const newDocument = await storage.createDocument({
+          ...data,
+          aiAnalysis,
+          complianceCheck,
+        });
+
+        res.status(201).json(newDocument);
+      } catch (error: any) {
+        console.error('[API] Error creating document:', error);
+        res.status(400).json({ error: error.message });
       }
-    } catch (aiError) {
-      console.error("AI analysis error:", aiError);
-    }
-
-    const newDocument = await storage.createDocument({
-      ...data,
-      aiAnalysis,
-      complianceCheck,
     });
 
-    res.status(201).json(newDocument);
-  } catch (error: any) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-// Deadlines endpoints
-app.get("/api/deadlines", async (req, res) => {
-  try {
-    const deadlines = await storage.getDeadlines();
-    res.json(deadlines);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/deadlines/upcoming", async (req, res) => {
-  try {
-    const deadlines = await storage.getUpcomingDeadlines();
-    res.json(deadlines);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/deadlines", async (req, res) => {
-  try {
-    const data = insertDeadlineSchema.parse(req.body);
-    const newDeadline = await storage.createDeadline(data);
-    res.status(201).json(newDeadline);
-  } catch (error: any) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-app.patch("/api/deadlines/:id", async (req, res) => {
-  try {
-    const updated = await storage.updateDeadline(req.params.id, req.body);
-    if (!updated) {
-      return res.status(404).json({ error: "Deadline not found" });
-    }
-    res.json(updated);
-  } catch (error: any) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-// Chat endpoints
-app.get("/api/chat/:contextId?", async (req, res) => {
-  try {
-    const contextId = req.params.contextId === "general" ? null : req.params.contextId;
-    const messages = await storage.getChatMessages(contextId || null);
-    res.json(messages);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { content, caseId } = req.body;
-
-    if (!content) {
-      return res.status(400).json({ error: "Message content is required" });
-    }
-
-    const userMessage = await storage.createChatMessage({
-      caseId: caseId || null,
-      role: "user",
-      content,
-      sources: null,
-      metadata: null,
-    });
-
-    let caseContext = null;
-    let jurisdiction = "general";
-    if (caseId) {
-      const caseItem = await storage.getCase(caseId);
-      if (caseItem) {
-        caseContext = {
-          title: caseItem.title,
-          plaintiff: caseItem.plaintiff,
-          defendant: caseItem.defendant,
-          jurisdiction: caseItem.jurisdiction,
-          description: caseItem.description,
-        };
-        jurisdiction = caseItem.jurisdiction;
+    // Deadlines endpoints
+    newApp.get("/api/deadlines", async (req, res) => {
+      try {
+        const deadlines = await storage.getDeadlines();
+        res.json(deadlines);
+      } catch (error: any) {
+        console.error('[API] Error fetching deadlines:', error);
+        res.status(500).json({ error: error.message });
       }
-    }
-
-    const { answer, sources } = await getLegalGuidance(
-      content,
-      jurisdiction,
-      caseContext
-    );
-
-    const aiMessage = await storage.createChatMessage({
-      caseId: caseId || null,
-      role: "assistant",
-      content: answer,
-      sources,
-      metadata: caseContext ? { caseContext } : null,
     });
 
-    res.status(201).json({
-      userMessage,
-      aiMessage,
+    newApp.get("/api/deadlines/upcoming", async (req, res) => {
+      try {
+        const deadlines = await storage.getUpcomingDeadlines();
+        res.json(deadlines);
+      } catch (error: any) {
+        console.error('[API] Error fetching upcoming deadlines:', error);
+        res.status(500).json({ error: error.message });
+      }
     });
+
+    newApp.post("/api/deadlines", async (req, res) => {
+      try {
+        const data = insertDeadlineSchema.parse(req.body);
+        const newDeadline = await storage.createDeadline(data);
+        res.status(201).json(newDeadline);
+      } catch (error: any) {
+        console.error('[API] Error creating deadline:', error);
+        res.status(400).json({ error: error.message });
+      }
+    });
+
+    newApp.patch("/api/deadlines/:id", async (req, res) => {
+      try {
+        const updated = await storage.updateDeadline(req.params.id, req.body);
+        if (!updated) {
+          return res.status(404).json({ error: "Deadline not found" });
+        }
+        res.json(updated);
+      } catch (error: any) {
+        console.error('[API] Error updating deadline:', error);
+        res.status(400).json({ error: error.message });
+      }
+    });
+
+    // Chat endpoints
+    newApp.get("/api/chat/:contextId?", async (req, res) => {
+      try {
+        const contextId = req.params.contextId === "general" ? null : req.params.contextId;
+        const messages = await storage.getChatMessages(contextId || null);
+        res.json(messages);
+      } catch (error: any) {
+        console.error('[API] Error fetching chat messages:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    newApp.post("/api/chat", async (req, res) => {
+      try {
+        const { content, caseId } = req.body;
+
+        if (!content) {
+          return res.status(400).json({ error: "Message content is required" });
+        }
+
+        const userMessage = await storage.createChatMessage({
+          caseId: caseId || null,
+          role: "user",
+          content,
+          sources: null,
+          metadata: null,
+        });
+
+        let caseContext = null;
+        let jurisdiction = "general";
+        
+        if (caseId) {
+          const caseItem = await storage.getCase(caseId);
+          if (caseItem) {
+            caseContext = {
+              title: caseItem.title,
+              plaintiff: caseItem.plaintiff,
+              defendant: caseItem.defendant,
+              jurisdiction: caseItem.jurisdiction,
+              description: caseItem.description,
+            };
+            jurisdiction = caseItem.jurisdiction;
+          }
+        }
+
+        const { answer, sources } = await getLegalGuidance(
+          content,
+          jurisdiction,
+          caseContext
+        );
+
+        const aiMessage = await storage.createChatMessage({
+          caseId: caseId || null,
+          role: "assistant",
+          content: answer,
+          sources,
+          metadata: caseContext ? { caseContext } : null,
+        });
+
+        res.status(201).json({
+          userMessage,
+          aiMessage,
+        });
+      } catch (error: any) {
+        console.error('[API] Error in chat:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Error handler
+    newApp.use((err: any, _req: any, res: any, _next: any) => {
+      console.error('[API] Unhandled error:', err);
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      res.status(status).json({ message });
+    });
+
+    console.log('[Init] ✓ App initialized successfully');
+    app = newApp;
+    return newApp;
+
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('[Init] ✗ Initialization failed:', error);
+    initializationError = error;
+    throw error;
   }
-});
+}
 
-// Error handler
-app.use((err: any, _req: any, res: any, _next: any) => {
-  const status = err.status || err.statusCode || 500;
-  const message = err.message || "Internal Server Error";
-  res.status(status).json({ message });
-  console.error(err);
-});
-
-// ============================================================================
-// VERCEL SERVERLESS FUNCTION HANDLER
-// ============================================================================
-
-// Export as Vercel serverless function
+/**
+ * Vercel Serverless Function Handler
+ * This is called on every request and reuses the initialized app
+ */
 export default async function handler(req: any, res: any) {
-  console.log(`[Vercel] ${req.method} ${req.url}`);
-  return app(req, res);
+  const startTime = Date.now();
+  console.log(`[Handler] ${req.method} ${req.url}`);
+
+  try {
+    const expressApp = await initializeApp();
+    await new Promise((resolve, reject) => {
+      expressApp(req, res, (err: any) => {
+        if (err) reject(err);
+        else resolve(undefined);
+      });
+    });
+    
+    const duration = Date.now() - startTime;
+    console.log(`[Handler] Completed in ${duration}ms`);
+  } catch (error: any) {
+    console.error('[Handler] Request failed:', error);
+    
+    // Send error response if headers not sent yet
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Server error",
+        message: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
 }
