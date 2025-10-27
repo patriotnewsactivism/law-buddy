@@ -2,8 +2,7 @@
 import multer from "multer";
 import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
-import { Request }1.
-import { promisify } from "util";
+import { Request } from "express"; // This line is now fixed
 
 // Use memory storage instead of disk storage
 const storage = multer.memoryStorage();
@@ -54,5 +53,3 @@ export async function extractTextFromFile(
     throw new Error("Failed to extract text from file.");
   }
 }
-
-// We no longer need cleanupFile or ensureUploadDirExists
