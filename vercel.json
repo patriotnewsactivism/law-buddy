@@ -4,8 +4,12 @@
   "installCommand": "npm install",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/(.*)",
       "destination": "/api/index.ts"
+    },
+    {
+      "source": "/((?!api/|assets/|favicon.png|_vite/|src/).*)",
+      "destination": "/index.html"
     }
   ]
 }
