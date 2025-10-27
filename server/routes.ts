@@ -103,11 +103,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Document upload with file handling
+// server/routes.ts
+
+// ... (all other routes stay the same) ...
+
+  // Document upload with file handling
   app.post("/api/documents/upload", upload.single("file"), async (req, res) => {
-    let filePath: string | undefined;
-    
     try {
-      const { caseId, title, documentType, content, fileName, fileSize } = req.body;
+      const { caseId, title, documentType, content } = req.body;
 
       if (!caseId || !title || !documentType) {
         return res.status(400).json({ error: "Missing required fields" });
@@ -176,16 +179,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No file uploaded and no content provided" });
       }
 
-      filePath = req.file.path;
-
       // Get case info for context
       const caseItem = await storage.getCase(caseId);
       if (!caseItem) {
         return res.status(404).json({ error: "Case not found" });
       }
 
-      // Extract text from the uploaded file
-      const extractedText = await extractTextFromFile(req.file.path, req.file.mimetype);
+      // Extract text from the uploaded file buffer
+      const extractedText = await extractTextFromFile(req.file.buffer, req.file.mimetype);
 
       if (!extractedText || extractedText.trim().length === 0) {
         return res.status(400).json({ error: "Could not extract text from file" });
@@ -243,15 +244,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         complianceCheck,
       });
 
-      // Clean up uploaded file
-      await cleanupFile(filePath);
-
+      // No cleanup needed as file was in memory
       res.status(201).json(newDocument);
     } catch (error: any) {
-      // Clean up file on error
-      if (filePath) {
-        await cleanupFile(filePath);
-      }
+      // No cleanup needed
       res.status(500).json({ error: error.message });
     }
   });
