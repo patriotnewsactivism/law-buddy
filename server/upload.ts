@@ -1,8 +1,10 @@
 // server/upload.ts
 import multer from "multer";
-import pdfParse from "pdf-parse"; // FIX 1: This import will now work
 import mammoth from "mammoth";
 import { Request } from "express";
+
+// FIX 1: Use require() to bypass TS module import errors
+const pdfParse = require("pdf-parse");
 
 // FIX 2: Use memoryStorage for Vercel. diskStorage will fail.
 const storage = multer.memoryStorage();
@@ -30,7 +32,7 @@ export const upload = multer({
 /**
  * Extracts text content from a file buffer.
  * @param buffer The file buffer from multer.
- *Signature @param mimetype The mimetype of the file.
+ * @param mimetype The mimetype of the file.
  * @returns A promise that resolves to the extracted text.
  */
 export async function extractTextFromFile(
