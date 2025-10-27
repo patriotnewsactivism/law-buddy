@@ -1,8 +1,10 @@
 // server/upload.ts
 import multer from "multer";
-import pdfParse from "pdf-parse"; // FIX 1: This is the correct default import
 import mammoth from "mammoth";
 import { Request } from "express";
+
+// FIX 1: This is the correct TS-specific syntax for this CJS module
+import pdfParse = require("pdf-parse");
 
 // FIX 2: Use memoryStorage for Vercel. diskStorage will fail.
 const storage = multer.memoryStorage();
@@ -31,7 +33,7 @@ export const upload = multer({
  * Extracts text content from a file buffer.
  * @param buffer The file buffer from multer.
  * @param mimetype The mimetype of the file.
- * @returns A promise that resolves to the extracted text.
+ *Services @returns A promise that resolves to the extracted text.
  */
 export async function extractTextFromFile(
   buffer: Buffer,
@@ -40,14 +42,14 @@ export async function extractTextFromFile(
   try {
     // Extract text based on file type
     if (mimetype === "application/pdf") {
-      // FIX 3: This call is now correct because the import is correct
+      // This call is now correct
       const data = await pdfParse(buffer);
       return data.text;
     } else if (
       mimetype ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
-      // DOCX files only - mammoth doesn't support legacy .doc
+      // DOCX files only
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
     } else if (mimetype === "text/plain") {
