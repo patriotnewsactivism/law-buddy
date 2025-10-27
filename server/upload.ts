@@ -1,6 +1,6 @@
 // server/upload.ts
 import multer from "multer";
-import * as pdfParse from "pdf-parse"; // FIX 1: Correct import syntax
+import pdfParse from "pdf-parse"; // FIX 1: This is the correct default import
 import mammoth from "mammoth";
 import { Request } from "express";
 
@@ -40,7 +40,7 @@ export async function extractTextFromFile(
   try {
     // Extract text based on file type
     if (mimetype === "application/pdf") {
-      // FIX 3: Use the correct import 'pdfParse'
+      // FIX 3: This call is now correct because the import is correct
       const data = await pdfParse(buffer);
       return data.text;
     } else if (
