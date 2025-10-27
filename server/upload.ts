@@ -1,6 +1,6 @@
 // server/upload.ts
 import multer from "multer";
-import pdfParse from "pdf-parse"; // FIX 1: Use default import
+import * as pdfParse from "pdf-parse"; // FIX 1: Correct import syntax
 import mammoth from "mammoth";
 import { Request } from "express";
 
@@ -12,7 +12,7 @@ export const upload = multer({
   limits: {
     fileSize: 50 * 1024 * 1024, // 50MB limit
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     // Only accept formats we can reliably extract text from
     const allowedTypes = [
       "text/plain",
@@ -27,6 +27,12 @@ export const upload = multer({
   },
 });
 
+/**
+ * Extracts text content from a file buffer.
+ * @param buffer The file buffer from multer.
+ * @param mimetype The mimetype of the file.
+ * @returns A promise that resolves to the extracted text.
+ */
 export async function extractTextFromFile(
   buffer: Buffer,
   mimetype: string
@@ -34,7 +40,7 @@ export async function extractTextFromFile(
   try {
     // Extract text based on file type
     if (mimetype === "application/pdf") {
-      // FIX 3: Use the correct variable name 'pdfParse'
+      // FIX 3: Use the correct import 'pdfParse'
       const data = await pdfParse(buffer);
       return data.text;
     } else if (
@@ -57,4 +63,4 @@ export async function extractTextFromFile(
   }
 }
 
-// We do not need cleanupFile when using memoryStorage
+// NOTE: cleanupFile is not needed because we are using memoryStorage.
