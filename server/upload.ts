@@ -1,7 +1,7 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
-import pdfParse from "pdf-parse";
+import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 
 // Configure multer for file uploads
@@ -48,7 +48,7 @@ export async function extractTextFromFile(filePath: string, mimetype: string): P
 
     // Extract text based on file type
     if (mimetype === "application/pdf") {
-      const data = await pdfParse(buffer);
+      const data = await PDFParse(buffer);
       return data.text;
     } else if (mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
       // DOCX files only - mammoth doesn't support legacy .doc
