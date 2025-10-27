@@ -17,7 +17,8 @@ import {
   type InsertLearningData,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, gte, lt } from "drizzle-orm";
+// FIX 1: Added 'isNull' to the import list
+import { eq, desc, and, gte, lt, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // Cases
@@ -166,10 +167,11 @@ export class DatabaseStorage implements IStorage {
         .where(eq(chatMessages.caseId, caseId))
         .orderBy(chatMessages.createdAt);
     } else {
+      // FIX 2: Changed 'eq(chatMessages.caseId, null)' to 'isNull(chatMessages.caseId)'
       return await db
         .select()
         .from(chatMessages)
-        .where(eq(chatMessages.caseId, null))
+        .where(isNull(chatMessages.caseId))
         .orderBy(chatMessages.createdAt);
     }
   }
