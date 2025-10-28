@@ -2,13 +2,6 @@
   "version": 2,
   "buildCommand": "npm run build",
   "installCommand": "npm install",
-  
-  "functions": {
-    "api/index.ts": {
-      "includeFiles": "server/**"
-    }
-  },
-  
   "rewrites": [
     {
       "source": "/api/(.*)",
