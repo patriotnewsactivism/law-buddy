@@ -20,30 +20,38 @@ import { db } from "./db.js"; // <-- ADDED .js
 import { eq, desc, and, gte, lt, isNull } from "drizzle-orm"; // <-- Includes isNull
 
 export interface IStorage {
-  // ... (interface is the same)
+  // Cases
   getCases(): Promise<Case[]>;
   getCase(id: string): Promise<Case | undefined>;
   createCase(data: InsertCase): Promise<Case>;
   updateCase(id: string, data: Partial<InsertCase>): Promise<Case | undefined>;
+
+  // Documents
   getDocuments(): Promise<Document[]>;
   getDocument(id: string): Promise<Document | undefined>;
   getCaseDocuments(caseId: string): Promise<Document[]>;
   createDocument(data: InsertDocument): Promise<Document>;
   updateDocument(id: string, data: Partial<InsertDocument>): Promise<Document | undefined>;
+
+  // Deadlines
   getDeadlines(): Promise<Deadline[]>;
   getDeadline(id: string): Promise<Deadline | undefined>;
   getCaseDeadlines(caseId: string): Promise<Deadline[]>;
   getUpcomingDeadlines(): Promise<Deadline[]>;
   createDeadline(data: InsertDeadline): Promise<Deadline>;
   updateDeadline(id: string, data: Partial<InsertDeadline>): Promise<Deadline | undefined>;
+
+  // Chat Messages
   getChatMessages(caseId: string | null): Promise<ChatMessage[]>;
   createChatMessage(data: InsertChatMessage): Promise<ChatMessage>;
+
+  // Learning Data
   getLearningData(category: string, jurisdiction?: string): Promise<LearningData[]>;
   createLearningData(data: InsertLearningData): Promise<LearningData>;
 }
 
 export class DatabaseStorage implements IStorage {
-  // ... (all other functions are the same)
+  // Cases
   async getCases(): Promise<Case[]> {
     return await db.select().from(cases).orderBy(desc(cases.createdAt));
   }
@@ -67,7 +75,8 @@ export class DatabaseStorage implements IStorage {
     return result || undefined;
   }
 
-  async getDocuments(): Promise<Document[]>{
+  // Documents
+  async getDocuments(): Promise<Document[]> {
     return await db.select().from(documents).orderBy(desc(documents.createdAt));
   }
 
@@ -98,7 +107,8 @@ export class DatabaseStorage implements IStorage {
     return result || undefined;
   }
 
-  async getDeadlines(): Promise<Deadline[]>{
+  // Deadlines
+  async getDeadlines(): Promise<Deadline[]> {
     return await db.select().from(deadlines).orderBy(deadlines.dueDate);
   }
 
@@ -170,6 +180,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  // Learning Data
   async getLearningData(category: string, jurisdiction?: string): Promise<LearningData[]> {
     if (jurisdiction) {
       return await db
