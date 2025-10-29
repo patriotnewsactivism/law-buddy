@@ -1,8 +1,8 @@
-// Reference: javascript_database blueprint
+// server/db.ts
 import { Pool, neonConfig } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-serverless';
 import ws from "ws";
-import * as schema from "../shared/schema"; // <-- This path is now fixed
+import * as schema from "../shared/schema.js"; // <-- ADDED .js
 
 neonConfig.webSocketConstructor = ws;
 
