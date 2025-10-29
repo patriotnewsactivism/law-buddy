@@ -67,7 +67,7 @@ export class DatabaseStorage implements IStorage {
     return result || undefined;
   }
 
-  async getDocuments(): Promise<Document[]> {
+  async getDocuments(): Promise<Document[]>{
     return await db.select().from(documents).orderBy(desc(documents.createdAt));
   }
 
@@ -98,7 +98,7 @@ export class DatabaseStorage implements IStorage {
     return result || undefined;
   }
 
-  async getDeadlines(): Promise<Deadline[]> {
+  async getDeadlines(): Promise<Deadline[]>{
     return await db.select().from(deadlines).orderBy(deadlines.dueDate);
   }
 
