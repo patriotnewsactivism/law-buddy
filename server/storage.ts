@@ -1,4 +1,4 @@
-// Reference: javascript_database blueprint
+// server/storage.ts
 import {
   cases,
   documents,
@@ -15,7 +15,7 @@ import {
   type InsertChatMessage,
   type LearningData,
   type InsertLearningData,
-} from "../shared/schema"; // <-- FIX 1: Corrected relative path
+} from "../shared/schema"; // <-- FIX 1: Correct relative path
 import { db } from "./db";
 // FIX 2: Added 'isNull' to the import list
 import { eq, desc, and, gte, lt, isNull } from "drizzle-orm";
@@ -93,8 +93,6 @@ export class DatabaseStorage implements IStorage {
       .where(eq(documents.caseId, caseId))
       .orderBy(desc(documents.createdAt));
   }
-
-
 
   async createDocument(data: InsertDocument): Promise<Document> {
     const [result] = await db.insert(documents).values(data).returning();
