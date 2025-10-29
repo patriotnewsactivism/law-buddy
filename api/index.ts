@@ -1,4 +1,4 @@
-//// api/index.ts
+// api/index.ts
 import express from 'express';
 import { createServer } from 'http';
 import { storage } from '../server/storage.js'; // <-- ADDED .js
@@ -14,6 +14,9 @@ import {
   learnFromDocument,
 } from '../server/openai.js'; // <-- ADDED .js
 import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED .js
+
+// ... rest of the file
+
     // ============================================================================
     // ROUTES
     // ============================================================================
