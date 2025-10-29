@@ -15,7 +15,7 @@ import {
   type InsertChatMessage,
   type LearningData,
   type InsertLearningData,
-} from "../shared/schema"; // <-- FIX 1: Correct relative path
+} from "../shared/schema"; // <-- FIX 1: Corrected relative path
 import { db } from "./db";
 // FIX 2: Added 'isNull' to the import list
 import { eq, desc, and, gte, lt, isNull } from "drizzle-orm";
