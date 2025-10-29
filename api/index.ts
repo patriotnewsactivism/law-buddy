@@ -1,21 +1,77 @@
 // api/index.ts
 import express from 'express';
 import { createServer } from 'http';
-import { storage } from '../server/storage.js'; // <-- ADDED .js
+import { storage } from '../server/storage.js';
 import {
   insertCaseSchema,
   insertDocumentSchema,
   insertDeadlineSchema,
-} from '../shared/schema.js'; // <-- ADDED .js
+} from '../shared/schema.js';
 import {
   analyzeLegalDocument,
   checkRule12b6Compliance,
   getLegalGuidance,
   learnFromDocument,
-} from '../server/openai.js'; // <-- ADDED .js
-import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED .js
+} from '../server/openai.js';
+import { upload, extractTextFromFile } from '../server/upload.js';
 
-// ... rest of the file
+let app: express.Express | null = null;
+let initializationError: Error | null = null;
+
+/**
+ * Initialize the Express app (runs only once)
+ */
+async function initializeApp(): Promise<express.Express> {
+  if (app) {
+    console.log('[Init] Using cached app instance');
+    return app;
+  }
+  if (initializationError) {
+    console.error('[Init] Initialization previously failed:', initializationError);
+    throw initializationError;
+  }
+
+  console.log('[Init] Initializing Express app...');
+  try {
+    const newApp = express();
+
+    // Middleware
+    newApp.use(express.json({
+      verify: (req: any, _res: any, buf: any) => {
+        req.rawBody = buf;
+      }
+    }));
+    newApp.use(express.urlencoded({ extended: false }));
+
+    // Logging middleware (optional, but helpful for debugging)
+    newApp.use((req, res, next) => {
+      const start = Date.now();
+      const path = req.path;
+      let capturedJsonResponse: any = undefined;
+
+      const originalResJson = res.json;
+      res.json = function (bodyJson, ...args) {
+        capturedJsonResponse = bodyJson;
+        return originalResJson.apply(res, [bodyJson, ...args]);
+      };
+
+      res.on("finish", () => {
+        const duration = Date.now() - start;
+        if (path.startsWith("/api")) {
+          let logLine = `[API Log] ${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+          // Optionally log response body (can be verbose)
+          // if (capturedJsonResponse) {
+          //   logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+          // }
+          // if (logLine.length > 150) { // Increased length limit
+          //   logLine = logLine.slice(0, 149) + "…";
+          // }
+          console.log(logLine);
+        }
+      });
+
+      next();
+    });
 
     // ============================================================================
     // ROUTES
@@ -23,8 +79,8 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
 
     // Health check endpoint
     newApp.get("/api/health", (req, res) => {
-      res.json({ 
-        status: "ok", 
+      res.json({
+        status: "ok",
         timestamp: new Date().toISOString(),
         environment: process.env.VERCEL ? "vercel" : "local"
       });
@@ -65,12 +121,13 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
         res.status(201).json(newCase);
       } catch (error: any) {
         console.error('[API] Error creating case:', error);
-        res.status(400).json({ 
+        res.status(400).json({
           error: error.message,
-          details: error.errors || undefined 
+          details: (error as any).errors || undefined // More robust error handling
         });
       }
     });
+
 
     newApp.patch("/api/cases/:id", async (req, res) => {
       try {
@@ -141,13 +198,13 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
         mimetype: req.file.mimetype,
         size: req.file.size
       } : "No file uploaded");
-      
+
       try {
         const { caseId, title, documentType, content } = req.body;
 
         if (!caseId || !title || !documentType) {
           console.log("✗ Missing required fields");
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: "Missing required fields",
             details: {
               caseId: !caseId ? "required" : "present",
@@ -170,26 +227,26 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
         } else if (req.file) {
           try {
             extractedText = await extractTextFromFile(
-              req.file.buffer, 
+              req.file.buffer,
               req.file.mimetype,
               req.file.originalname
             );
           } catch (extractError: any) {
             console.error("✗ Text extraction failed:", extractError.message);
-            return res.status(400).json({ 
+            return res.status(400).json({
               error: "Failed to extract text from file",
-              details: extractError.message 
+              details: extractError.message
             });
           }
         } else {
-          return res.status(400).json({ 
-            error: "No file uploaded and no content provided" 
+          return res.status(400).json({
+            error: "No file uploaded and no content provided"
           });
         }
 
         if (!extractedText || extractedText.trim().length === 0) {
-          return res.status(400).json({ 
-            error: "Could not extract text from file or no content provided" 
+          return res.status(400).json({
+            error: "Could not extract text from file or no content provided"
           });
         }
 
@@ -245,7 +302,7 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
         res.status(201).json(newDocument);
       } catch (error: any) {
         console.error("✗ Upload failed:", error);
-        res.status(500).json({ 
+        res.status(500).json({
           error: "Upload failed",
           details: error.message
         });
@@ -257,7 +314,7 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
       try {
         const data = insertDocumentSchema.parse(req.body);
         const caseItem = await storage.getCase(data.caseId);
-        
+
         if (!caseItem) {
           return res.status(404).json({ error: "Case not found" });
         }
@@ -387,7 +444,7 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
 
         let caseContext = null;
         let jurisdiction = "general";
-        
+
         if (caseId) {
           const caseItem = await storage.getCase(caseId);
           if (caseItem) {
@@ -435,15 +492,15 @@ import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED 
     });
 
     console.log('[Init] ✓ App initialized successfully');
-    app = newApp;
-    return newApp;
+    app = newApp; // Cache the initialized app
+    return newApp; // **THIS IS THE FIX: Return inside the function**
 
   } catch (error: any) {
     console.error('[Init] ✗ Initialization failed:', error);
-    initializationError = error;
-    throw error;
+    initializationError = error; // Cache the error
+    throw error; // Rethrow to fail the handler
   }
-}
+} // **THIS IS THE FIX: Closing brace for initializeApp**
 
 /**
  * Vercel Serverless Function Handler
@@ -454,19 +511,20 @@ export default async function handler(req: any, res: any) {
   console.log(`[Handler] ${req.method} ${req.url}`);
 
   try {
-    const expressApp = await initializeApp();
-    await new Promise((resolve, reject) => {
-      expressApp(req, res, (err: any) => {
-        if (err) reject(err);
-        else resolve(undefined);
-      });
-    });
-    
-    const duration = Date.now() - startTime;
-    console.log(`[Handler] Completed in ${duration}ms`);
+    const expressApp = await initializeApp(); // Get or initialize the app
+    // Use the Express app instance directly as the handler
+    expressApp(req, res);
+
+    // Logging completion can be tricky if response ends asynchronously
+    // Using res.on('finish') might be more reliable if needed
+    // res.on('finish', () => {
+    //   const duration = Date.now() - startTime;
+    //   console.log(`[Handler] Completed ${req.method} ${req.url} with status ${res.statusCode} in ${duration}ms`);
+    // });
+
   } catch (error: any) {
-    console.error('[Handler] Request failed:', error);
-    
+    console.error('[Handler] Request failed during initialization or routing:', error);
+
     // Send error response if headers not sent yet
     if (!res.headersSent) {
       res.status(500).json({
