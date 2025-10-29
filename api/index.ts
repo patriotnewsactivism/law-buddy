@@ -1,92 +1,19 @@
-// api/index.ts - Vercel Serverless Function with Robust Error Handling
+//// api/index.ts
 import express from 'express';
-
-// Global app instance - reused across invocations
-let app: express.Express | null = null;
-let initializationError: Error | null = null;
-
-/**
- * Initialize the Express app with all routes and middleware.
- * This runs once and is cached across serverless invocations.
- */
-async function initializeApp(): Promise<express.Express> {
-  if (app) {
-    return app;
-  }
-
-  if (initializationError) {
-    throw initializationError;
-  }
-
-  console.log('[Init] Starting serverless function initialization...');
-  
-  try {
-    // Create express app
-    const newApp = express();
-
-    // Middleware
-    newApp.use(express.json({
-      verify: (req: any, _res: any, buf: any) => {
-        req.rawBody = buf;
-      }
-    }));
-
-    newApp.use(express.urlencoded({ extended: false }));
-
-    // Logging middleware
-    newApp.use((req, res, next) => {
-      const start = Date.now();
-      const path = req.path;
-      let capturedJsonResponse: any = undefined;
-
-      const originalResJson = res.json;
-      res.json = function (bodyJson, ...args) {
-        capturedJsonResponse = bodyJson;
-        return originalResJson.apply(res, [bodyJson, ...args]);
-      };
-
-      res.on("finish", () => {
-        const duration = Date.now() - start;
-        if (path.startsWith("/api")) {
-          let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-          if (capturedJsonResponse) {
-            logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-          }
-          if (logLine.length > 80) {
-            logLine = logLine.slice(0, 79) + "…";
-          }
-          console.log(logLine);
-        }
-      });
-
-      next();
-    });
-
-    // Verify environment variables
-    console.log('[Init] Checking environment variables...');
-    if (!process.env.DATABASE_URL) {
-      throw new Error('DATABASE_URL environment variable is not set');
-    }
-    console.log('[Init] ✓ DATABASE_URL is set');
-
-    // Lazy load heavy dependencies only after env vars are verified
-    console.log('[Init] Loading dependencies...');
-    const { storage } = await import('../server/storage');
-    const {
-      insertCaseSchema,
-      insertDocumentSchema,
-      insertDeadlineSchema,
-    } = await import('../shared/schema');
-    const {
-      analyzeLegalDocument,
-      checkRule12b6Compliance,
-      getLegalGuidance,
-      learnFromDocument,
-    } = await import('../server/openai');
-    const { upload, extractTextFromFile } = await import('../server/upload');
-    
-    console.log('[Init] ✓ Dependencies loaded');
-
+import { createServer } from 'http';
+import { storage } from '../server/storage.js'; // <-- ADDED .js
+import {
+  insertCaseSchema,
+  insertDocumentSchema,
+  insertDeadlineSchema,
+} from '../shared/schema.js'; // <-- ADDED .js
+import {
+  analyzeLegalDocument,
+  checkRule12b6Compliance,
+  getLegalGuidance,
+  learnFromDocument,
+} from '../server/openai.js'; // <-- ADDED .js
+import { upload, extractTextFromFile } from '../server/upload.js'; // <-- ADDED .js
     // ============================================================================
     // ROUTES
     // ============================================================================
