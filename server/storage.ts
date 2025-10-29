@@ -15,9 +15,9 @@ import {
   type InsertChatMessage,
   type LearningData,
   type InsertLearningData,
-} from "..shared/schema";
+} from "../shared/schema"; // <-- FIX 1: Corrected relative path
 import { db } from "./db";
-// FIX 1: Added 'isNull' to the import list
+// FIX 2: Added 'isNull' to the import list
 import { eq, desc, and, gte, lt, isNull } from "drizzle-orm";
 
 export interface IStorage {
@@ -94,6 +94,8 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(documents.createdAt));
   }
 
+
+
   async createDocument(data: InsertDocument): Promise<Document> {
     const [result] = await db.insert(documents).values(data).returning();
     return result;
@@ -167,7 +169,7 @@ export class DatabaseStorage implements IStorage {
         .where(eq(chatMessages.caseId, caseId))
         .orderBy(chatMessages.createdAt);
     } else {
-      // FIX 2: Changed 'eq(chatMessages.caseId, null)' to 'isNull(chatMessages.caseId)'
+      // FIX 3: Changed 'eq(chatMessages.caseId, null)' to 'isNull(chatMessages.caseId)'
       return await db
         .select()
         .from(chatMessages)
