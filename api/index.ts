@@ -1,18 +1,18 @@
 // api/index.ts
 import express from 'express';
 import { createServer } from 'http';
-import { storage } from '../server/storage.js';
+import { storage } from '../server/storage.js'; // <-- ADDED .js
 import {
   insertCaseSchema,
   insertDocumentSchema,
   insertDeadlineSchema,
-} from '../shared/schema.js';
+} from '../shared/schema.js'; // <-- ADDED .js
 import {
   analyzeLegalDocument,
   checkRule12b6Compliance,
   getLegalGuidance,
   learnFromDocument,
-} from '../server/openai.js';
+} from '../server/openai.js'; // <-- ADDED .js
 import { upload, extractTextFromFile } from '../server/upload.js';
 
 let app: express.Express | null = null;
